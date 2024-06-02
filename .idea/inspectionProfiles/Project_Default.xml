@@ -1,0 +1,16 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyUnresolvedReferencesInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredIdentifiers">
+        <list>
+          <option value="tuple.triplane_res" />
+          <option value="tuple.decoder_ch" />
+          <option value="tuple.use_self_attention" />
+          <option value="tuple.*" />
+          <option value="pytorch3d.renderer.cameras.PerspectiveCameras" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>
