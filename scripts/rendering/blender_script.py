@@ -5,7 +5,9 @@ import json
 import math
 import os
 import random
+import shutil
 import sys
+import time
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Set, Tuple
 
 import bpy
@@ -799,10 +801,10 @@ def render_object(
         metadata["random_color"] = None
 
     # save metadata
-    metadata_path = os.path.join(output_dir, "metadata.json")
-    os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
-    with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, sort_keys=True, indent=2)
+    #metadata_path = os.path.join(output_dir, "metadata.json")
+    #os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
+    #with open(metadata_path, "w", encoding="utf-8") as f:
+    #    json.dump(metadata, f, sort_keys=True, indent=2)
 
     # normalize the scene
     normalize_scene()
@@ -822,10 +824,82 @@ def render_object(
         scene.render.filepath = render_path
         bpy.ops.render.render(write_still=True)
 
+        # save image
+        bpy.data.images['Render Result'].save_render(render_path)
+
         # save camera RT matrix
-        rt_matrix = get_3x4_RT_matrix_from_blender(camera)
+        #rt_matrix = get_3x4_RT_matrix_from_blender(camera)
+        rt_matrix = camera.matrix_world
         rt_matrix_path = os.path.join(output_dir, f"{i:03d}.npy")
         np.save(rt_matrix_path, rt_matrix)
+
+
+def copy_and_update_dict(source_dir,image_files,npy_files,indices, split):
+    frames = []
+    for i, idx in enumerate(indices):
+        img_dict =  {}
+        # Copy and rename image file
+        src_image_path = os.path.join(source_dir, image_files[idx])
+        dest_image_path = os.path.join(source_dir, split, f"{i}.png")
+        shutil.copyfile(src_image_path, dest_image_path)
+
+        # Read npy file and update dictionary
+        src_npy_path = os.path.join(source_dir, npy_files[idx])
+        npy_content = np.load(src_npy_path)
+        img_dict["file_path"] = f"./{split}/{i}"
+        img_dict["transform_matrix"] = npy_content.tolist()
+        frames.append(img_dict)
+    return frames
+
+
+def split_and_transforms(dir, angle_x):
+    train_dir = os.path.join(dir, "train")
+    test_dir = os.path.join(dir, "test")
+    os.makedirs(train_dir, exist_ok=True)
+    os.makedirs(test_dir, exist_ok=True)
+
+    image_files = [f for f in os.listdir(dir) if f.endswith('.png')]
+    npy_files = [f for f in os.listdir(dir) if f.endswith('.npy')]
+
+    image_files.sort()
+    npy_files.sort()
+
+    assert len(image_files) == len(npy_files), "The number of images and npy files must match."
+
+    N = len(image_files)
+
+    # Shuffle indices
+    indices = list(range(N))
+    random.shuffle(indices)
+
+    train_indices = indices[:N // 2]
+    test_indices = indices[N // 2:]
+    train_dict = {}
+    test_dict = {}
+    train_frames = copy_and_update_dict(dir, image_files, npy_files, train_indices, "train")
+    test_frames = copy_and_update_dict(dir, image_files, npy_files, test_indices, "test")
+
+    #train_dict["focal"] = focal_length
+    train_dict["camera_angle_x"] = angle_x
+    train_dict["frames"] = train_frames
+
+    #test_dict["focal"] = focal_length
+    test_dict["camera_angle_x"] = angle_x
+    test_dict["frames"] = test_frames
+
+    with open(os.path.join(dir, "transforms_train.json"), 'w') as train_json_file:
+        json.dump(train_dict, train_json_file)
+
+    with open(os.path.join(dir, "transforms_test.json"), 'w') as test_json_file:
+        json.dump(test_dict, test_json_file)
+
+    # go over images and delete them
+    for img, npf in zip(image_files, npy_files):
+        if os.path.exists(os.path.join(dir, img)):
+            os.remove(os.path.join(dir, img))
+        if os.path.exists(os.path.join(dir, npf)):
+            os.remove(os.path.join(dir, npf))
+    return
 
 
 if __name__ == "__main__":
@@ -860,20 +934,28 @@ if __name__ == "__main__":
         default=12,
         help="Number of renders to save of the object.",
     )
-    argv = sys.argv[sys.argv.index("--") + 1 :]
-    args = parser.parse_args(argv)
+    args = parser.parse_args()
 
     context = bpy.context
     scene = context.scene
     render = scene.render
+    camera = scene.camera
 
     # Set render settings
     render.engine = args.engine
     render.image_settings.file_format = "PNG"
-    render.image_settings.color_mode = "RGBA"
-    render.resolution_x = 512
-    render.resolution_y = 512
+    render.image_settings.color_mode = "RGBA" #RGBA
+
+    # camera angles and focal lengths
+    sensor_size = 36.0  # Example size in mm
+    camera.data.sensor_width = sensor_size
+    camera.data.sensor_height = sensor_size
+    render.resolution_x = 128
+    render.resolution_y = 128
     render.resolution_percentage = 100
+
+    angle_x = camera.data.angle_x
+    angle_y = camera.data.angle_y
 
     # Set cycles settings
     scene.cycles.device = "GPU"
@@ -890,10 +972,18 @@ if __name__ == "__main__":
         "cycles"
     ].preferences.compute_device_type = "CUDA"  # or "OPENCL"
 
+
     # Render the images
+    start_time = time.time()
     render_object(
         object_file=args.object_path,
         num_renders=args.num_renders,
         only_northern_hemisphere=args.only_northern_hemisphere,
         output_dir=args.output_dir,
     )
+
+    split_and_transforms(args.output_dir, angle_x)
+    end_time = time.time()
+
+    elapsed_time = end_time - start_time
+    print("Time taken:", elapsed_time, "seconds")

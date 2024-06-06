@@ -1,0 +1,6 @@
+*.pyc
+desktop.ini
+objaverse.egg-info/
+scripts/rendering/__MACOSX/
+data/
+.idea/workspace.xml

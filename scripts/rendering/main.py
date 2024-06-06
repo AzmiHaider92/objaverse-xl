@@ -377,10 +377,10 @@ def render_objects(
     Returns:
         None
     """
-    if platform.system() not in ["Linux", "Darwin"]:
-        raise NotImplementedError(
-            f"Platform {platform.system()} is not supported. Use Linux or MacOS."
-        )
+    #if platform.system() not in ["Linux", "Darwin"]:
+    #    raise NotImplementedError(
+    #        f"Platform {platform.system()} is not supported. Use Linux or MacOS."
+    #    )
     if download_dir is None and save_repo_format is not None:
         raise ValueError(
             f"If {save_repo_format=} is not None, {download_dir=} must be specified."
