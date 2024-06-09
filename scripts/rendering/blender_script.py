@@ -9,7 +9,7 @@ import shutil
 import sys
 import time
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Set, Tuple
-
+from concurrent.futures import ThreadPoolExecutor
 import bpy
 import numpy as np
 from mathutils import Matrix, Vector
@@ -902,13 +902,27 @@ def split_and_transforms(dir, angle_x):
     return
 
 
+def parallel_render(obj, objects_path, output_dir, angle_x, num_renders, delete_obj, only_northern_hemisphere=False):
+    id = obj.split('.')[0]
+    download_dir = os.path.join(output_dir, id)
+    render_object(
+        object_file=os.path.join(objects_path, obj),
+        num_renders=num_renders,
+        only_northern_hemisphere=only_northern_hemisphere,
+        output_dir=download_dir,
+        )
+    split_and_transforms(download_dir, angle_x)
+    if delete_obj:
+        os.remove(os.path.join(objects_path, obj))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--object_path",
+        "--objects_path",
         type=str,
         required=True,
-        help="Path to the object file",
+        help="Path to the objects",
     )
     parser.add_argument(
         "--output_dir",
@@ -934,6 +948,13 @@ if __name__ == "__main__":
         default=12,
         help="Number of renders to save of the object.",
     )
+    parser.add_argument(
+        "--delete_obj",
+        type=bool,
+        default=False,
+        help="after rendering the obj to images (and transforms), should we delete it?"
+    )
+
     args = parser.parse_args()
 
     context = bpy.context
@@ -972,18 +993,27 @@ if __name__ == "__main__":
         "cycles"
     ].preferences.compute_device_type = "CUDA"  # or "OPENCL"
 
-
-    # Render the images
     start_time = time.time()
-    render_object(
-        object_file=args.object_path,
-        num_renders=args.num_renders,
-        only_northern_hemisphere=args.only_northern_hemisphere,
-        output_dir=args.output_dir,
-    )
+    obj_paths = os.listdir(args.objects_path)
+    for obj in obj_paths:
+        # Render the images
+        id = obj.split('.')[0]
+        download_dir = os.path.join(args.output_dir, id)
+        render_object(
+            object_file=os.path.join(args.objects_path, obj),
+            num_renders=args.num_renders,
+            only_northern_hemisphere=args.only_northern_hemisphere,
+            output_dir=download_dir,
+        )
+        split_and_transforms(download_dir, angle_x)
+        # delete the object afterwards
+        if args.delete_obj:
+            os.remove(os.path.join(args.objects_path, obj))
 
-    split_and_transforms(args.output_dir, angle_x)
     end_time = time.time()
 
     elapsed_time = end_time - start_time
     print("Time taken:", elapsed_time, "seconds")
+
+
+
