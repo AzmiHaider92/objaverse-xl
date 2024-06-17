@@ -95,10 +95,10 @@ def _sample_spherical(
 
 
 def randomize_camera(
-    radius_min: float = 1.5,
-    radius_max: float = 2.2,
-    maxz: float = 2.2,
-    minz: float = -2.2,
+    radius_min: float = 2.0,
+    radius_max: float = 2.0,
+    maxz: float = 3.0,
+    minz: float = -3.0,
     only_northern_hemisphere: bool = False,
 ) -> bpy.types.Object:
     """Randomizes the camera location and rotation inside of a spherical shell.
@@ -766,8 +766,8 @@ def render_object(
 
     # Set up cameras
     cam = scene.objects["Camera"]
-    cam.data.lens = 35
-    cam.data.sensor_width = 32
+    #cam.data.lens = 35
+    #cam.data.sensor_width = 32
 
     # Set up camera constraints
     cam_constraint = cam.constraints.new(type="TRACK_TO")
@@ -872,8 +872,8 @@ def split_and_transforms(dir, angle_x):
     indices = list(range(N))
     random.shuffle(indices)
 
-    train_indices = indices[:N // 2]
-    test_indices = indices[N // 2:]
+    train_indices = indices[:int(0.8*N)]
+    test_indices = indices[int(0.8*N):]
     train_dict = {}
     test_dict = {}
     train_frames = copy_and_update_dict(dir, image_files, npy_files, train_indices, "train")
@@ -951,7 +951,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--delete_obj",
         type=bool,
-        default=False,
+        default=True,
         help="after rendering the obj to images (and transforms), should we delete it?"
     )
 
