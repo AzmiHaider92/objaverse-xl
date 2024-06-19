@@ -1,6 +1,7 @@
 """Blender script to render images of 3D models."""
 
 import argparse
+import glob
 import json
 import math
 import os
@@ -14,6 +15,7 @@ import bpy
 import mathutils
 import numpy as np
 from mathutils import Matrix, Vector
+from tqdm import tqdm
 
 IMPORT_FUNCTIONS: Dict[str, Callable] = {
     "obj": bpy.ops.import_scene.obj,
@@ -1054,27 +1056,39 @@ if __name__ == "__main__":
         "cycles"
     ].preferences.compute_device_type = "CUDA"  # or "OPENCL"
 
-    start_time = time.time()
-    obj_paths = os.listdir(args.objects_path)
-    for obj in obj_paths:
-        # Render the images
-        id = obj.split('.')[0]
-        download_dir = os.path.join(args.output_dir, id)
-        render_object(
-            object_file=os.path.join(args.objects_path, obj),
-            num_renders=args.num_renders,
-            only_northern_hemisphere=args.only_northern_hemisphere,
-            output_dir=download_dir,
-        )
-        split_and_transforms(download_dir, angle_x)
-        # delete the object afterwards
-        if args.delete_obj:
-            os.remove(os.path.join(args.objects_path, obj))
 
+    # list all files
+    pattern = os.path.join(args.objects_path, '**', '*.glb')
+    glb_files = glob.glob(pattern, recursive=True)
+
+    corrupted_files = []
+    start_time = time.time()
+    for obj in tqdm(glb_files):
+        try:
+            # Render the images
+            download_dir = obj.split('.')[0]
+            render_object(
+                object_file=obj,
+                num_renders=args.num_renders,
+                only_northern_hemisphere=args.only_northern_hemisphere,
+                output_dir=download_dir,
+            )
+            split_and_transforms(download_dir, angle_x)
+            # delete the object afterwards
+            if args.delete_obj:
+                os.remove(obj)
+        except:
+            corrupted_files.append(obj)
     end_time = time.time()
 
+    print("---------------------finished-------------------------")
     elapsed_time = end_time - start_time
     print("Time taken:", elapsed_time, "seconds")
+
+    # delete corrupted objects
+    print("# corrupted files:", len(corrupted_files))
+    for obj in corrupted_files:
+        os.remove(obj)
 
 
 
