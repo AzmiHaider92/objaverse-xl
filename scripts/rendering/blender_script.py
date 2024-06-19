@@ -11,6 +11,7 @@ import time
 from typing import Any, Callable, Dict, Generator, List, Literal, Optional, Set, Tuple
 from concurrent.futures import ThreadPoolExecutor
 import bpy
+import mathutils
 import numpy as np
 from mathutils import Matrix, Vector
 
@@ -68,8 +69,6 @@ def sample_point_on_sphere(radius: float) -> Tuple[float, float, float]:
 def _sample_spherical(
     radius_min: float = 1.5,
     radius_max: float = 2.0,
-    maxz: float = 1.6,
-    minz: float = -0.75,
 ) -> np.ndarray:
     """Sample a random point in a spherical shell.
 
@@ -89,16 +88,14 @@ def _sample_spherical(
         #         vec[2] = np.abs(vec[2])
         radius = np.random.uniform(radius_min, radius_max, 1)
         vec = vec / np.linalg.norm(vec, axis=0) * radius[0]
-        if maxz > vec[2] > minz:
-            correct = True
+        #if maxz > vec[2] > minz:
+        correct = True
     return vec
 
 
 def randomize_camera(
     radius_min: float = 2.0,
     radius_max: float = 2.0,
-    maxz: float = 3.0,
-    minz: float = -3.0,
     only_northern_hemisphere: bool = False,
 ) -> bpy.types.Object:
     """Randomizes the camera location and rotation inside of a spherical shell.
@@ -119,7 +116,7 @@ def randomize_camera(
     """
 
     x, y, z = _sample_spherical(
-        radius_min=radius_min, radius_max=radius_max, maxz=maxz, minz=minz
+        radius_min=radius_min, radius_max=radius_max
     )
     camera = bpy.data.objects["Camera"]
 
@@ -345,11 +342,23 @@ def scene_bbox(
     Returns:
         Tuple[Vector, Vector]: The minimum and maximum coordinates of the bounding box.
     """
-    bbox_min = (math.inf,) * 3
-    bbox_max = (-math.inf,) * 3
+
     found = False
     for obj in get_scene_meshes() if single_obj is None else [single_obj]:
         found = True
+        '''
+        mesh = obj.data
+        bbox_min = mathutils.Vector((float('inf'), float('inf'), float('inf')))
+        bbox_max = mathutils.Vector((float('-inf'), float('-inf'), float('-inf')))
+    
+        for vertex in mesh.vertices:
+            world_vertex = obj.matrix_world @ vertex.co
+            for i in range(3):
+                bbox_min[i] = min(bbox_min[i], world_vertex[i])
+                bbox_max[i] = max(bbox_max[i], world_vertex[i])
+        '''
+        bbox_min = (math.inf,) * 3
+        bbox_max = (-math.inf,) * 3
         for coord in obj.bound_box:
             coord = Vector(coord)
             if not ignore_matrix:
@@ -437,6 +446,47 @@ def delete_invisible_objects() -> None:
         bpy.data.collections.remove(col)
 
 
+def join_objects_with_meshes():
+    # Get all objects in the scene
+    all_objects = bpy.context.scene.objects
+
+    # Create a new mesh object to hold the combined mesh data
+    bpy.ops.object.select_all(action='DESELECT')  # Deselect all objects first
+    bpy.context.view_layer.objects.active = None  # Clear active object
+
+    # List to hold mesh data of all objects
+    mesh_data_list = []
+
+    # Iterate through all objects
+    for obj in all_objects:
+        if obj.type == 'MESH':
+            # Select the object and add its mesh data to the list
+            obj.select_set(True)
+            bpy.context.view_layer.objects.active = obj
+            mesh_data_list.append(obj.data)
+
+    # Check if there are meshes to join
+    if mesh_data_list:
+        # Create a new object to hold the combined mesh
+        bpy.ops.object.join()
+        new_object = bpy.context.active_object
+
+        # Rename the new object as desired
+        new_object.name = "CombinedObject"
+
+        # Deselect all objects and select the new object
+        bpy.ops.object.select_all(action='DESELECT')
+        new_object.select_set(True)
+        bpy.context.view_layer.objects.active = new_object
+
+        # Optional: Delete original objects (uncomment to delete)
+        #for obj in bpy.context.selected_objects:
+        #    bpy.data.objects.remove(obj, do_unlink=True)
+
+    else:
+        print("No mesh objects found to join.")
+
+
 def normalize_scene() -> None:
     """Normalizes the scene by scaling and translating it to fit in a unit cube centered
     at the origin.
@@ -449,31 +499,39 @@ def normalize_scene() -> None:
     Returns:
         None
     """
-    if len(list(get_scene_root_objects())) > 1:
+    #if len(list(bpy.context.scene.objects)) > 1:
         # create an empty object to be used as a parent for all root objects
-        parent_empty = bpy.data.objects.new("ParentEmpty", None)
-        bpy.context.scene.collection.objects.link(parent_empty)
+        #parent_empty = bpy.data.objects.new("ParentEmpty", None)
+        #bpy.context.scene.collection.objects.link(parent_empty)
+        # ask the question - which object has meshes
+        #main_object = bpy.context.scene.objects["CombinedObject"]
+        #for obj in bpy.context.scene.objects:
+            #if obj != main_object:
+                #obj.parent = main_object
 
-        # parent all root objects to the empty object
-        for obj in get_scene_root_objects():
-            if obj != parent_empty:
-                obj.parent = parent_empty
+    mesh_objects = []
+    for obj in bpy.context.scene.objects:
+        if obj.type == "MESH":
+            mesh_objects.append(obj)
 
     bbox_min, bbox_max = scene_bbox()
-    scale = 1 / max(bbox_max - bbox_min)
-    for obj in get_scene_root_objects():
+    scale = 1.0 / max(bbox_max - bbox_min)
+    for obj in mesh_objects:
         obj.scale = obj.scale * scale
+
+    bpy.context.view_layer.update()
 
     # Apply scale to matrix_world.
     bpy.context.view_layer.update()
     bbox_min, bbox_max = scene_bbox()
     offset = -(bbox_min + bbox_max) / 2
-    for obj in get_scene_root_objects():
+    for obj in mesh_objects:
         obj.matrix_world.translation += offset
     bpy.ops.object.select_all(action="DESELECT")
 
     # unparent the camera
     bpy.data.objects["Camera"].parent = None
+
 
 
 def delete_missing_textures() -> Dict[str, Any]:
@@ -766,8 +824,7 @@ def render_object(
 
     # Set up cameras
     cam = scene.objects["Camera"]
-    #cam.data.lens = 35
-    #cam.data.sensor_width = 32
+
 
     # Set up camera constraints
     cam_constraint = cam.constraints.new(type="TRACK_TO")
@@ -805,6 +862,9 @@ def render_object(
     #os.makedirs(os.path.dirname(metadata_path), exist_ok=True)
     #with open(metadata_path, "w", encoding="utf-8") as f:
     #    json.dump(metadata, f, sort_keys=True, indent=2)
+
+    # one object has all the meshes, this is our main object
+    #join_objects_with_meshes()
 
     # normalize the scene
     normalize_scene()
@@ -960,7 +1020,8 @@ if __name__ == "__main__":
     context = bpy.context
     scene = context.scene
     render = scene.render
-    camera = scene.camera
+    #camera = scene.camera
+    camera = scene.objects["Camera"]
 
     # Set render settings
     render.engine = args.engine
